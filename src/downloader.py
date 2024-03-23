@@ -7,15 +7,26 @@ from exif import Image
 import json
 from typing import Any
 
-ACCESS_TOKEN = "<ACCESS_TOKEN>"
 
+def create_folder_if_not_exists(folder_path: str) -> None:
+    """Create a folder if it does not exist.
 
-def create_folder_if_not_exists(folder_path):
+    Args:
+        folder_path (str): The path to the folder to be created.
+    """
     if not os.path.exists(folder_path):
         os.makedirs(folder_path)
 
 
-def get_children_data(access_token):
+def get_children_data(access_token: str) -> list[dict[str, Any]]:
+    """Retrieve children data from the API.
+
+    Args:
+        access_token (str): The access token for API authentication.
+
+    Returns:
+        list[dict[str, Any]]: A list of children data.
+    """
     headers = {
         'authority': 'app.famly.co',
         'accept': '*/*',
@@ -38,7 +49,19 @@ def get_children_data(access_token):
     return response.json()['children']
 
 
-def fetch_tagged_image_metadata(access_token, limit, child_id, created_at=None, cutoff_date=None):
+def fetch_tagged_image_metadata(access_token: str, limit: int, child_id: str, created_at: str | None = None, cutoff_date: str | None = None) -> list[dict[str, Any]]:
+    """Fetch metadata for images tagged with a child's ID.
+
+    Args:
+        access_token (str): The access token for API authentication.
+        limit (int): The maximum number of items to fetch.
+        child_id (str): The ID of the child.
+        created_at (str | None): The timestamp to fetch images created before.
+        cutoff_date (str | None): The cutoff date to stop fetching images.
+
+    Returns:
+        list[dict[str, Any]]: A list of image metadata.
+    """
     parsed_cutoff_date = None
     if cutoff_date:
         parsed_cutoff_date = datetime.fromisoformat(cutoff_date)
@@ -80,8 +103,13 @@ def fetch_tagged_image_metadata(access_token, limit, child_id, created_at=None, 
         return []
 
 
-def update_exif_date(image_path, new_date):
-    # Open the image file for reading (binary mode)
+def update_exif_date(image_path: str, new_date: datetime) -> None:
+    """Update the EXIF date of an image.
+
+    Args:
+        image_path (str): The file path of the image.
+        new_date (datetime): The new date to set in the image's EXIF data.
+    """    # Open the image file for reading (binary mode)
     with open(image_path, 'rb') as image_file:
         img = Image(image_file)
 
@@ -99,7 +127,13 @@ def update_exif_date(image_path, new_date):
             image_file.write(img.get_file())
 
 
-def download_image(image, path):
+def download_image(image: dict[str, Any], path: str) -> None:
+    """Download an image and update its EXIF date.
+
+    Args:
+        image (dict[str, Any]): The image metadata.
+        path (str): The path where the image will be saved.
+    """
     response = requests.get(image["url_big"])
 
     # Check if the request was successful
@@ -113,7 +147,19 @@ def download_image(image, path):
                 image_path, datetime.fromisoformat(image['createdAt']))
 
 
-def print_progress_bar(iteration, total, prefix='', suffix='', decimals=1, length=50, fill='█'):
+def print_progress_bar(iteration: int, total: int, prefix: str = '', suffix: str = '', decimals: int = 1, length: int = 50, fill: str = '█') -> None:
+    """Print a progress bar to the console.
+
+    Args:
+        iteration (int): Current iteration number.
+        total (int): Total iterations.
+        prefix (str): Prefix string.
+        suffix (str): Suffix string.
+        decimals (int): Positive number
+        length (int): Length of the progress bar.
+        fill (str): Fill character.
+    """
+
     percent = ("{0:." + str(decimals) + "f}").format(100 *
                                                      (iteration / float(total)))
     filled_length = int(length * iteration // total)
@@ -123,7 +169,17 @@ def print_progress_bar(iteration, total, prefix='', suffix='', decimals=1, lengt
     sys.stdout.flush()
 
 
-def get_all_images_for_child(access_token, items_per_request, child_id, child_name, cutoff_date, settings):
+def get_all_images_for_child(access_token: str, items_per_request: int, child_id: str, child_name: str, cutoff_date: str, settings: dict[str, Any]) -> None:
+    """
+    Fetches all tagged image metadata for a given child and downloads the images.
+
+    :param access_token: The access token for authentication.
+    :param items_per_request: The number of items to fetch per request.
+    :param child_id: The unique identifier for the child.
+    :param child_name: The name of the child.
+    :param cutoff_date: The date to fetch images up to.
+    :param settings: A dictionary containing settings such as metadata path.
+    """
     images = fetch_tagged_image_metadata(
         access_token, items_per_request, child_id, cutoff_date=cutoff_date)
 
@@ -148,6 +204,13 @@ def get_all_images_for_child(access_token, items_per_request, child_id, child_na
 
 
 def load_json_file(file_path: str) -> Any:
+    """
+    Loads a JSON file from the given file path.
+
+    :param file_path: The path to the JSON file to be loaded.
+    :return: The content of the JSON file.
+    :raises ValueError: If the file does not exist at the specified path.
+    """
     if not os.path.exists(file_path):
         raise ValueError(f"Settings file not found at {
                          file_path}. Please copy .env.json to .env.local.json and replace the relevant values")
@@ -155,24 +218,41 @@ def load_json_file(file_path: str) -> Any:
         return json.load(file)
 
 
-def get_or_create_metadata_file(path):
+def get_or_create_metadata_file(path: str) -> dict[str, Any]:
+    """
+    Gets the metadata file from the given path, or creates it if it does not exist.
+
+    :param path: The path to the metadata file.
+    :return: The content of the metadata file.
+    """
     if not os.path.exists(path):
         with open(path, 'w') as file:
             json.dump({}, file)
     return load_json_file(path)
 
 
-def write_metadata_file(path, cutoff_date):
+def write_metadata_file(path: str, cutoff_date: str) -> None:
+    """
+    Writes the cutoff date to the metadata file at the given path.
+
+    :param path: The path to the metadata file.
+    :param cutoff_date: The cutoff date to be written to the file.
+    """
     with open(path, 'w') as file:
         json.dump({"cutoff_date": cutoff_date}, file)
 
 
-settings = load_json_file(".env.local.json")
-token = settings['access_token']
-metadata = get_or_create_metadata_file(settings['metadata_path'])
+def main():
+    settings = load_json_file(".env.local.json")
+    token = settings['access_token']
+    metadata = get_or_create_metadata_file(settings['metadata_path'])
 
-children = get_children_data(token)
+    children = get_children_data(token)
 
-for child in children:
-    get_all_images_for_child(
-        token, settings['items_per_request'], child['childId'], child['name'], metadata.get('cutoff_date'), settings)
+    for child in children:
+        get_all_images_for_child(
+            token, settings['items_per_request'], child['childId'], child['name'], metadata.get('cutoff_date'), settings)
+
+
+if __name__ == "__main__":
+    main()
