@@ -4,8 +4,9 @@ import sys
 import os
 from datetime import datetime
 from exif import Image
+import json
+from typing import Any
 
-ITEMS_PER_REQUEST = 2000
 ACCESS_TOKEN = "<ACCESS_TOKEN>"
 
 
@@ -14,7 +15,7 @@ def create_folder_if_not_exists(folder_path):
         os.makedirs(folder_path)
 
 
-def get_children_data():
+def get_children_data(access_token):
     headers = {
         'authority': 'app.famly.co',
         'accept': '*/*',
@@ -26,7 +27,7 @@ def get_children_data():
         'sec-fetch-dest': 'empty',
         'sec-fetch-mode': 'cors',
         'sec-fetch-site': 'same-origin',
-        'x-famly-accesstoken': ACCESS_TOKEN,
+        'x-famly-accesstoken': access_token,
         'x-famly-route': '/account/childProfile/:childId/activity',
         'x-famly-version': '43fc96ddd2'
     }
@@ -37,7 +38,10 @@ def get_children_data():
     return response.json()['children']
 
 
-def fetch_tagged_image_metadata(limit, child_id, created_at=None):
+def fetch_tagged_image_metadata(access_token, limit, child_id, created_at=None, cutoff_date=None):
+    parsed_cutoff_date = None
+    if cutoff_date:
+        parsed_cutoff_date = datetime.fromisoformat(cutoff_date)
     url = f"https://app.famly.co/api/v2/images/tagged?childId={
         child_id}&limit={limit}"
     if created_at:
@@ -56,24 +60,20 @@ def fetch_tagged_image_metadata(limit, child_id, created_at=None):
         'sec-fetch-mode': 'cors',
         'sec-fetch-site': 'same-origin',
         'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        'x-famly-accesstoken': ACCESS_TOKEN,
+        'x-famly-accesstoken': access_token,
         'x-famly-platform': 'html',
     }
 
     response = requests.get(url, headers=headers)
 
-    # To handle the response, you might want to check if the request was successful
     if response.status_code == 200:
-        # If you expect a JSON response, you can use response.json()
         data = response.json()
-        print(f"Got {len(data)} items")
-        # Do something with the data
-        if (len(data) >= limit):
+        if (len(data) >= limit) and (parsed_cutoff_date is None or parsed_cutoff_date < datetime.fromisoformat(data[-1]['createdAt'])):
             print(f"Got more than {
                   limit} items, we'll want to attempt to fetch the next page")
-            return data + fetch_tagged_image_metadata(limit, child_id, data[-1]["createdAt"])
+            return data + fetch_tagged_image_metadata(access_token, limit, child_id, data[-1]["createdAt"])
         else:
-            return data
+            return [d for d in data if parsed_cutoff_date is None or datetime.fromisoformat(d['createdAt']) > parsed_cutoff_date]
 
     else:
         print(f"Failed to retrieve data: {response.status_code}")
@@ -123,8 +123,15 @@ def print_progress_bar(iteration, total, prefix='', suffix='', decimals=1, lengt
     sys.stdout.flush()
 
 
-def get_all_images_for_child(child_id, child_name):
-    images = fetch_tagged_image_metadata(ITEMS_PER_REQUEST, child_id)
+def get_all_images_for_child(access_token, items_per_request, child_id, child_name, cutoff_date, settings):
+    images = fetch_tagged_image_metadata(
+        access_token, items_per_request, child_id, cutoff_date=cutoff_date)
+
+    if not images:
+        print(f"No new images for {child_name}")
+        return
+
+    print(f"Starting download for {len(images)} images")
     img_count = len(images)
 
     for i in range(img_count):
@@ -137,7 +144,35 @@ def get_all_images_for_child(child_id, child_name):
         print_progress_bar(i + 1, img_count, prefix='Progress:',
                            suffix='Complete', length=50)
 
+    write_metadata_file(settings['metadata_path'], images[0]['createdAt'])
 
-children = get_children_data()
+
+def load_json_file(file_path: str) -> Any:
+    if not os.path.exists(file_path):
+        raise ValueError(f"Settings file not found at {
+                         file_path}. Please copy .env.json to .env.local.json and replace the relevant values")
+    with open(file_path, 'r', encoding='utf-8') as file:
+        return json.load(file)
+
+
+def get_or_create_metadata_file(path):
+    if not os.path.exists(path):
+        with open(path, 'w') as file:
+            json.dump({}, file)
+    return load_json_file(path)
+
+
+def write_metadata_file(path, cutoff_date):
+    with open(path, 'w') as file:
+        json.dump({"cutoff_date": cutoff_date}, file)
+
+
+settings = load_json_file(".env.local.json")
+token = settings['access_token']
+metadata = get_or_create_metadata_file(settings['metadata_path'])
+
+children = get_children_data(token)
+
 for child in children:
-    get_all_images_for_child(child['childId'], child['name'])
+    get_all_images_for_child(
+        token, settings['items_per_request'], child['childId'], child['name'], metadata.get('cutoff_date'), settings)
